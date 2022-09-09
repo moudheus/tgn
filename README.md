@@ -34,19 +34,21 @@ scikit_learn==0.23.1
 ### Dataset and Preprocessing
 
 #### Download the public data
-Download the sample datasets (eg. wikipedia and reddit) from
-[here](http://snap.stanford.edu/jodie/) and store their csv files in a folder named
-```data/```.
+
+Download the sample datasets (eg. wikipedia and reddit).
+
+```
+source ./download_data.sh 
+```
 
 #### Preprocess the data
+
 We use the dense `npy` format to save the features in binary format. If edge features or nodes 
 features are absent, they will be replaced by a vector of zeros. 
 ```{bash}
 python utils/preprocess_data.py --data wikipedia --bipartite
 python utils/preprocess_data.py --data reddit --bipartite
 ```
-
-
 
 ### Model Training
 
@@ -110,6 +112,7 @@ python train_supervised.py -d reddit --use_memory --memory_updater rnn  --dyrep 
 
 
 ### Ablation Study
+
 Commands to replicate all results in the ablation study over different modules:
 ```{bash}
 # TGN-2l
@@ -166,6 +169,7 @@ optional arguments:
 ```
 
 ## TODOs 
+
 * Make code memory efficient: for the sake of simplicity, the memory module of the TGN model is 
 implemented as a parameter (so that it is stored and loaded together of the model). However, this 
 does not need to be the case, and 
