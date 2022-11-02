@@ -1,3 +1,6 @@
+#!/usr/bin/env python
+# coding: utf-8
+
 import math
 import logging
 import time
@@ -8,6 +11,8 @@ import numpy as np
 import json
 from pathlib import Path
 from sklearn.metrics import average_precision_score, roc_auc_score
+import pandas as pd
+from tqdm import trange
 
 from model.tgn import TGN
 from utils.utils import EarlyStopMonitor, RandEdgeSampler, get_neighbor_finder
@@ -15,60 +20,6 @@ from utils.data_processing import get_data, compute_time_statistics
 
 torch.manual_seed(0)
 np.random.seed(0)
-
-
-
-
-def predict(
-    model, negative_edge_sampler, data, n_neighbors, batch_size=200
-):
-    # Ensures the random sampler uses a seed for evaluation (i.e. we sample always the same
-    # negatives for validation / test set)
-    assert negative_edge_sampler.seed is not None
-    negative_edge_sampler.reset_random_state()
-
-    val_ap, val_auc = [], []
-    with torch.no_grad():
-        model = model.eval()
-        # While usually the test batch size is as big as it fits in memory, here we keep it the same
-        # size as the training batch size, since it allows the memory to be updated more frequently,
-        # and later test batches to access information from interactions in previous test batches
-        # through the memory
-        TEST_BATCH_SIZE = batch_size
-        num_test_instance = len(data.sources)
-        num_test_batch = math.ceil(num_test_instance / TEST_BATCH_SIZE)
-
-        for k in range(num_test_batch):
-            s_idx = k * TEST_BATCH_SIZE
-            e_idx = min(num_test_instance, s_idx + TEST_BATCH_SIZE)
-            sources_batch = data.sources[s_idx:e_idx]
-            destinations_batch = data.destinations[s_idx:e_idx]
-            timestamps_batch = data.timestamps[s_idx:e_idx]
-            edge_idxs_batch = data.edge_idxs[s_idx:e_idx]
-
-            size = len(sources_batch)
-            _, negative_samples = negative_edge_sampler.sample(size)
-
-            pos_prob, neg_prob = model.compute_edge_probabilities(
-                sources_batch,
-                destinations_batch,
-                negative_samples,
-                timestamps_batch,
-                edge_idxs_batch,
-                n_neighbors,
-            )
-
-            import pdb; pdb.set_trace()
-            
-            pred_score = np.concatenate(
-                [(pos_prob).cpu().numpy(), (neg_prob).cpu().numpy()]
-            )
-            true_label = np.concatenate([np.ones(size), np.zeros(size)])
-
-            val_ap.append(average_precision_score(true_label, pred_score))
-            val_auc.append(roc_auc_score(true_label, pred_score))
-
-    return np.mean(val_ap), np.mean(val_auc)
 
 
 
@@ -187,10 +138,13 @@ parser.add_argument(
 
 
 try:
+#    args = parser.parse_args('--use_memory --prefix tgn-attn --n_runs 1'.split())
     args = parser.parse_args()
 except:
     parser.print_help()
     sys.exit(0)
+
+
 
 BATCH_SIZE = args.bs
 NUM_NEIGHBORS = args.n_degree
@@ -229,6 +183,8 @@ logger.addHandler(fh)
 logger.addHandler(ch)
 logger.info(args)
 
+
+
 ### Extract data for training, validation and testing
 (
     node_features,
@@ -245,24 +201,16 @@ logger.info(args)
     randomize_features=args.randomize_features,
 )
 
+
+# In[20]:
+
+
 # Initialize training neighbor finder to retrieve temporal graph
 train_ngh_finder = get_neighbor_finder(train_data, args.uniform)
 
 # Initialize validation and test neighbor finder to retrieve temporal graph
 full_ngh_finder = get_neighbor_finder(full_data, args.uniform)
 
-# Initialize negative samplers. Set seeds for validation and testing so negatives are the same
-# across different runs
-# NB: in the inductive setting, negatives are sampled only amongst other new nodes
-train_rand_sampler = RandEdgeSampler(train_data.sources, train_data.destinations)
-val_rand_sampler = RandEdgeSampler(full_data.sources, full_data.destinations, seed=0)
-nn_val_rand_sampler = RandEdgeSampler(
-    new_node_val_data.sources, new_node_val_data.destinations, seed=1
-)
-test_rand_sampler = RandEdgeSampler(full_data.sources, full_data.destinations, seed=2)
-nn_test_rand_sampler = RandEdgeSampler(
-    new_node_test_data.sources, new_node_test_data.destinations, seed=3
-)
 
 # Set device
 device_string = "cuda:{}".format(GPU) if torch.cuda.is_available() else "cpu"
@@ -278,73 +226,92 @@ device = torch.device(device_string)
     full_data.sources, full_data.destinations, full_data.timestamps
 )
 
-for i in range(args.n_runs):
-    results_path = (
-        "results/predict_{}_{}.json".format(args.prefix, i)
-        if i > 0
-        else "results/predict_{}.json".format(args.prefix)
+
+results_path = "results/predict_{}.json".format(args.prefix)
+Path("results/").mkdir(parents=True, exist_ok=True)
+
+# Initialize Model
+tgn = TGN(
+    neighbor_finder=train_ngh_finder,
+    node_features=node_features,
+    edge_features=edge_features,
+    device=device,
+    n_layers=NUM_LAYER,
+    n_heads=NUM_HEADS,
+    dropout=DROP_OUT,
+    use_memory=USE_MEMORY,
+    message_dimension=MESSAGE_DIM,
+    memory_dimension=MEMORY_DIM,
+    memory_update_at_start=not args.memory_update_at_end,
+    embedding_module_type=args.embedding_module,
+    message_function=args.message_function,
+    aggregator_type=args.aggregator,
+    memory_updater_type=args.memory_updater,
+    n_neighbors=NUM_NEIGHBORS,
+    mean_time_shift_src=mean_time_shift_src,
+    std_time_shift_src=std_time_shift_src,
+    mean_time_shift_dst=mean_time_shift_dst,
+    std_time_shift_dst=std_time_shift_dst,
+    use_destination_embedding_in_message=args.use_destination_embedding_in_message,
+    use_source_embedding_in_message=args.use_source_embedding_in_message,
+    dyrep=args.dyrep,
+)
+tgn = tgn.to(device)
+
+num_instance = len(train_data.sources)
+num_batch = math.ceil(num_instance / BATCH_SIZE)
+
+logger.info("num of training instances: {}".format(num_instance))
+logger.info("num of batches per epoch: {}".format(num_batch))
+idx_list = np.arange(num_instance)
+
+
+logger.info(f"Loading model {MODEL_SAVE_PATH}")
+tgn.load_state_dict(torch.load(MODEL_SAVE_PATH))
+logger.info("Done")
+tgn.eval()
+
+tgn.embedding_module.neighbor_finder = full_ngh_finder
+
+
+
+
+
+def predict(tgn, sources, destinations, edge_time, n_neighbors):
+    source_embeddings = tgn.compute_temporal_embeddings_for_prediction(
+        sources,
+        np.repeat(edge_time, len(sources)),
+        n_neighbors
     )
-    Path("results/").mkdir(parents=True, exist_ok=True)
-
-    # Initialize Model
-    tgn = TGN(
-        neighbor_finder=train_ngh_finder,
-        node_features=node_features,
-        edge_features=edge_features,
-        device=device,
-        n_layers=NUM_LAYER,
-        n_heads=NUM_HEADS,
-        dropout=DROP_OUT,
-        use_memory=USE_MEMORY,
-        message_dimension=MESSAGE_DIM,
-        memory_dimension=MEMORY_DIM,
-        memory_update_at_start=not args.memory_update_at_end,
-        embedding_module_type=args.embedding_module,
-        message_function=args.message_function,
-        aggregator_type=args.aggregator,
-        memory_updater_type=args.memory_updater,
-        n_neighbors=NUM_NEIGHBORS,
-        mean_time_shift_src=mean_time_shift_src,
-        std_time_shift_src=std_time_shift_src,
-        mean_time_shift_dst=mean_time_shift_dst,
-        std_time_shift_dst=std_time_shift_dst,
-        use_destination_embedding_in_message=args.use_destination_embedding_in_message,
-        use_source_embedding_in_message=args.use_source_embedding_in_message,
-        dyrep=args.dyrep,
+    destination_embeddings = tgn.compute_temporal_embeddings_for_prediction(
+        destinations,
+        np.repeat(edge_time, len(destinations)),
+        n_neighbors
     )
-    tgn = tgn.to(device)
+    scores = []
+    for i in trange(len(sources)):
+        e = source_embeddings[i, :].repeat(len(destination_embeddings), 1)
+        score = tgn.affinity_score(e, destination_embeddings).squeeze(dim=0)
+        df = pd.DataFrame()
+        df['source'] = np.repeat(sources[i], len(destinations))
+        df['destination'] = destinations
+        df['score'] = score.detach().cpu().numpy()
+        top = df.sort_values('score', ascending=False).head(100)
+        scores.append(top)
 
-    num_instance = len(train_data.sources)
-    num_batch = math.ceil(num_instance / BATCH_SIZE)
-
-    logger.info("num of training instances: {}".format(num_instance))
-    logger.info("num of batches per epoch: {}".format(num_batch))
-    idx_list = np.arange(num_instance)
+    scores = pd.concat(scores).reset_index(drop=True)
+    return scores
 
 
-    logger.info(f"Loading model {MODEL_SAVE_PATH}")
-    tgn.load_state_dict(torch.load(MODEL_SAVE_PATH))
-    logger.info("Done")
-    tgn.eval()
 
+data = train_data
+sources = np.unique(data.sources)
+destinations = np.unique(data.destinations)
+edge_time = 2218300.0
 
-    ### Test
-    tgn.embedding_module.neighbor_finder = full_ngh_finder
-    test_ap, test_auc = predict(
-        model=tgn,
-        negative_edge_sampler=test_rand_sampler,
-        data=test_data,
-        n_neighbors=NUM_NEIGHBORS,
-    )
+scores = predict(tgn, sources, destinations, edge_time, NUM_NEIGHBORS)
 
-    logger.info(
-        "Test statistics: Old nodes -- auc: {}, ap: {}".format(test_auc, test_ap)
-    )
-    
-    json.dump(
-        {
-            "test_ap": test_ap,
-            "test_auc": test_auc,
-        },
-        open(results_path, "w"),
-    )
+path = 'results/predictions.csv'
+print(f'Saving to {path}')
+scores.to_csv(path, index=False)
+

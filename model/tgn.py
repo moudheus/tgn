@@ -157,6 +157,7 @@ class TGN(torch.nn.Module):
         """
 
         n_samples = len(source_nodes)
+        n_neg = len(negative_nodes)
         nodes = np.concatenate([source_nodes, destination_nodes, negative_nodes])
         positives = np.concatenate([source_nodes, destination_nodes])
         timestamps = np.concatenate([edge_times, edge_times, edge_times])
@@ -264,6 +265,53 @@ class TGN(torch.nn.Module):
             negative_node_embedding,
         )
 
+    def compute_temporal_embeddings_for_prediction(
+        self,
+        nodes,
+        edge_times,
+        n_neighbors=20,
+    ):
+        """
+        Compute temporal embeddings for sources, destinations, and negatively sampled destinations.
+
+        source_nodes [batch_size]: source ids.
+        :param edge_times [batch_size]: timestamp of interaction
+        :param n_neighbors [scalar]: number of temporal neighbor to consider in each convolutional
+        layer
+        :return: Temporal embeddings for nodes
+        """
+
+        memory = None
+        time_diffs = None
+        if self.use_memory:
+            if self.memory_update_at_start:
+                # Update memory for all nodes with messages stored in previous batches
+                memory, last_update = self.get_updated_memory(
+                    list(range(self.n_nodes)), self.memory.messages
+                )
+            else:
+                memory = self.memory.get_memory(list(range(self.n_nodes)))
+                last_update = self.memory.last_update
+
+            ### Compute differences between the time the memory of a node was last updated,
+            ### and the time for which we want to compute the embedding of a node
+            time_diffs = torch.LongTensor(edge_times).to(self.device) - last_update[nodes].long()
+            time_diffs = (time_diffs - self.mean_time_shift_src) / self.std_time_shift_src
+
+
+        # Compute the embeddings using the embedding module
+        node_embedding = self.embedding_module.compute_embedding(
+            memory=memory,
+            source_nodes=nodes,
+            timestamps=edge_times,
+            n_layers=self.n_layers,
+            n_neighbors=n_neighbors,
+            time_diffs=time_diffs,
+        )
+
+        return node_embedding
+    
+
     def compute_edge_probabilities(
         self,
         source_nodes,
@@ -285,6 +333,9 @@ class TGN(torch.nn.Module):
         layer
         :return: Probabilities for both the positive and negative edges
         """
+        
+        #import pdb; pdb.set_trace()
+        
         n_samples = len(source_nodes)
         (
             source_node_embedding,
@@ -298,14 +349,14 @@ class TGN(torch.nn.Module):
             edge_idxs,
             n_neighbors,
         )
-
-        score = self.affinity_score(
-            torch.cat([source_node_embedding, source_node_embedding], dim=0),
-            torch.cat([destination_node_embedding, negative_node_embedding]),
-        ).squeeze(dim=0)
+        
+        #import pdb; pdb.set_trace()
+        
+        x1 = torch.cat([source_node_embedding, source_node_embedding], dim=0)
+        x2 = torch.cat([destination_node_embedding, negative_node_embedding], dim=0)
+        score = self.affinity_score(x1, x2).squeeze(dim=0)
         pos_score = score[:n_samples]
         neg_score = score[n_samples:]
-
         return pos_score.sigmoid(), neg_score.sigmoid()
 
     def update_memory(self, nodes, messages):
