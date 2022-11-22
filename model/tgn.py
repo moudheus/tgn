@@ -340,8 +340,6 @@ class TGN(torch.nn.Module):
         :return: Probabilities for both the positive and negative edges
         """
 
-        # import pdb; pdb.set_trace()
-
         n_samples = len(source_nodes)
         (
             source_node_embedding,
@@ -355,8 +353,6 @@ class TGN(torch.nn.Module):
             edge_idxs,
             n_neighbors,
         )
-
-        # import pdb; pdb.set_trace()
 
         x1 = torch.cat([source_node_embedding, source_node_embedding], dim=0)
         x2 = torch.cat([destination_node_embedding, negative_node_embedding], dim=0)
