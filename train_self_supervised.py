@@ -5,7 +5,7 @@ import sys
 import argparse
 import torch
 import numpy as np
-import pickle
+import json
 from pathlib import Path
 
 from evaluation.evaluation import eval_edge_prediction
@@ -153,9 +153,10 @@ MEMORY_DIM = args.memory_dim
 
 Path("./saved_models/").mkdir(parents=True, exist_ok=True)
 Path("./saved_checkpoints/").mkdir(parents=True, exist_ok=True)
-MODEL_SAVE_PATH = f"./saved_models/{args.prefix}-{args.data}.pth"
+FULL_PREFIX = f"{args.prefix}-{args.data}"
+MODEL_SAVE_PATH = f"./saved_models/{FULL_PREFIX}.pth"
 get_checkpoint_path = (
-    lambda epoch: f"./saved_checkpoints/{args.prefix}-{args.data}-{epoch}.pth"
+    lambda epoch: f"./saved_checkpoints/{FULL_PREFIX}-{epoch}.pth"
 )
 
 ### set up logger
@@ -223,13 +224,10 @@ device = torch.device(device_string)
     full_data.sources, full_data.destinations, full_data.timestamps
 )
 
+Path("results/").mkdir(parents=True, exist_ok=True)
+
 for i in range(args.n_runs):
-    results_path = (
-        "results/{}_{}.pkl".format(args.prefix, i)
-        if i > 0
-        else "results/{}.pkl".format(args.prefix)
-    )
-    Path("results/").mkdir(parents=True, exist_ok=True)
+    results_path = "results/{}_{}.json".format(FULL_PREFIX, i) if i > 0 else "results/{}.json".format(FULL_PREFIX)
 
     # Initialize Model
     tgn = TGN(
@@ -325,9 +323,7 @@ for i in range(args.n_runs):
                     NUM_NEIGHBORS,
                 )
 
-                loss += criterion(pos_prob.squeeze(), pos_label) + criterion(
-                    neg_prob.squeeze(), neg_label
-                )
+                loss += criterion(pos_prob.squeeze(), pos_label) + criterion(neg_prob.squeeze(), neg_label)
 
             loss /= args.backprop_every
 
@@ -382,7 +378,7 @@ for i in range(args.n_runs):
         train_losses.append(np.mean(m_loss))
 
         # Save temporary results to disk
-        pickle.dump(
+        json.dump(
             {
                 "val_aps": val_aps,
                 "new_nodes_val_aps": new_nodes_val_aps,
@@ -390,7 +386,7 @@ for i in range(args.n_runs):
                 "epoch_times": epoch_times,
                 "total_epoch_times": total_epoch_times,
             },
-            open(results_path, "wb"),
+            open(results_path, "w"),
         )
 
         total_epoch_time = time.time() - start_epoch
@@ -452,7 +448,7 @@ for i in range(args.n_runs):
         "Test statistics: New nodes -- auc: {}, ap: {}".format(nn_test_auc, nn_test_ap)
     )
     # Save results for this run
-    pickle.dump(
+    json.dump(
         {
             "val_aps": val_aps,
             "new_nodes_val_aps": new_nodes_val_aps,
@@ -462,10 +458,10 @@ for i in range(args.n_runs):
             "train_losses": train_losses,
             "total_epoch_times": total_epoch_times,
         },
-        open(results_path, "wb"),
+        open(results_path, "w"),
     )
 
-    logger.info("Saving TGN model")
+    logger.info(f"Saving TGN model to {MODEL_SAVE_PATH}")
     if USE_MEMORY:
         # Restore memory at the end of validation (save a model which is ready for testing)
         tgn.memory.restore_memory(val_memory_backup)
