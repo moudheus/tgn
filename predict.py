@@ -42,14 +42,7 @@ parser.add_argument(
 parser.add_argument(
     "--n_head", type=int, default=2, help="Number of heads used in attention layer"
 )
-#parser.add_argument("--n_epoch", type=int, default=50, help="Number of epochs")
-parser.add_argument("--n_epoch", type=int, default=3, help="Number of epochs")
 parser.add_argument("--n_layer", type=int, default=1, help="Number of network layers")
-parser.add_argument("--lr", type=float, default=0.0001, help="Learning rate")
-parser.add_argument(
-    "--patience", type=int, default=5, help="Patience for early stopping"
-)
-parser.add_argument("--n_runs", type=int, default=1, help="Number of runs")
 parser.add_argument("--drop_out", type=float, default=0.1, help="Dropout probability")
 parser.add_argument("--gpu", type=int, default=0, help="Idx for the gpu to use")
 parser.add_argument(
@@ -57,12 +50,6 @@ parser.add_argument(
 )
 parser.add_argument(
     "--time_dim", type=int, default=100, help="Dimensions of the time embedding"
-)
-parser.add_argument(
-    "--backprop_every",
-    type=int,
-    default=1,
-    help="Every how many batches to " "backprop",
 )
 parser.add_argument(
     "--use_memory",
@@ -138,7 +125,6 @@ parser.add_argument(
 
 
 try:
-#    args = parser.parse_args('--use_memory --prefix tgn-attn --n_runs 1'.split())
     args = parser.parse_args()
 except:
     parser.print_help()
@@ -149,22 +135,24 @@ except:
 BATCH_SIZE = args.bs
 NUM_NEIGHBORS = args.n_degree
 NUM_NEG = 1
-NUM_EPOCH = args.n_epoch
 NUM_HEADS = args.n_head
 DROP_OUT = args.drop_out
 GPU = args.gpu
 DATA = args.data
 NUM_LAYER = args.n_layer
-LEARNING_RATE = args.lr
 NODE_DIM = args.node_dim
 TIME_DIM = args.time_dim
 USE_MEMORY = args.use_memory
 MESSAGE_DIM = args.message_dim
 MEMORY_DIM = args.memory_dim
 
+
 Path("./saved_models/").mkdir(parents=True, exist_ok=True)
 Path("./saved_checkpoints/").mkdir(parents=True, exist_ok=True)
-MODEL_SAVE_PATH = f"./saved_models/{args.prefix}-{args.data}.pth"
+
+FULL_PREFIX = f"{args.prefix}-{args.data}"
+MODEL_SAVE_PATH = f"./saved_models/{FULL_PREFIX}.pth"
+RESULTS_PATH = Path('results')
 
 
 ### set up logger
@@ -202,9 +190,6 @@ logger.info(args)
 )
 
 
-# In[20]:
-
-
 # Initialize training neighbor finder to retrieve temporal graph
 train_ngh_finder = get_neighbor_finder(train_data, args.uniform)
 
@@ -227,8 +212,7 @@ device = torch.device(device_string)
 )
 
 
-results_path = "results/predict_{}.json".format(args.prefix)
-Path("results/").mkdir(parents=True, exist_ok=True)
+RESULTS_PATH.mkdir(parents=True, exist_ok=True)
 
 # Initialize Model
 tgn = TGN(
@@ -274,7 +258,7 @@ tgn.eval()
 tgn.embedding_module.neighbor_finder = full_ngh_finder
 
 
-
+TOPK = 100
 
 
 def predict(tgn, sources, destinations, edge_time, n_neighbors):
@@ -296,22 +280,92 @@ def predict(tgn, sources, destinations, edge_time, n_neighbors):
         df['source'] = np.repeat(sources[i], len(destinations))
         df['destination'] = destinations
         df['score'] = score.detach().cpu().numpy()
-        top = df.sort_values('score', ascending=False).head(100)
-        scores.append(top)
+        topk = df.sort_values('score', ascending=False).head(TOPK)
+        scores.append(topk)
 
     scores = pd.concat(scores).reset_index(drop=True)
     return scores
 
 
+def predict_low_mem(tgn, sources, destinations, edge_time, n_neighbors):
+    # TODO
+    destination_embeddings = tgn.compute_temporal_embeddings_for_prediction(
+        destinations,
+        np.repeat(edge_time, len(destinations)),
+        n_neighbors
+    )
+    scores = []
+    for i in trange(len(sources)):
+        source_embeddings = tgn.compute_temporal_embeddings_for_prediction(
+            sources,
+            np.repeat(edge_time, len(sources)),
+            n_neighbors
+        )
+        e = source_embeddings[i, :].repeat(len(destination_embeddings), 1)
+        score = tgn.affinity_score(e, destination_embeddings).squeeze(dim=0)
+        df = pd.DataFrame()
+        df['source'] = np.repeat(sources[i], len(destinations))
+        df['destination'] = destinations
+        df['score'] = score.detach().cpu().numpy()
+        topk = df.sort_values('score', ascending=False).head(TOPK)
+        scores.append(topk)
 
-data = train_data
-sources = np.unique(data.sources)
-destinations = np.unique(data.destinations)
-edge_time = 2218300.0
+    scores = pd.concat(scores).reset_index(drop=True)
+    return scores
+
+
+sources = np.unique(train_data.sources)
+destinations = np.unique(train_data.destinations)
+edge_time = test_data.timestamps.mean()
 
 scores = predict(tgn, sources, destinations, edge_time, NUM_NEIGHBORS)
 
-path = 'results/predictions.csv'
-print(f'Saving to {path}')
+
+path = RESULTS_PATH / f'{FULL_PREFIX}-predictions.csv'
+logger.info(f'Saving to {path}')
 scores.to_csv(path, index=False)
 
+true = pd.DataFrame()
+true['source'] = test_data.sources
+true['destination'] = test_data.destinations
+true.to_csv(RESULTS_PATH / f'{FULL_PREFIX}-true.csv', index=False)
+
+
+# Scoring
+
+def rank_score(preds_list, true_set):
+    for i, pred in enumerate(preds_list):
+        if pred in true_set:
+            return i+1
+    return 1_000_000
+
+
+def write_dict(d, path):
+    with open(path, 'w') as f:
+        json.dump(d, f)
+        f.write('\n')
+
+
+
+
+#TODO option to remove training interactions from reco_dict so we only recommand new items
+reco_dict = scores.groupby('source')['destination'].apply(list).to_dict()
+true_dict = true.groupby('source')['destination'].apply(set).to_dict()
+
+support = set(reco_dict.keys()) & set(true_dict.keys())
+print(f'Support: {len(support)} users')
+
+rank_dict = {user: rank_score(reco_dict[user], true_dict[user]) for user in support}
+
+d = args.__dict__.copy()
+
+d['mrr'] = np.mean([1/r for r in rank_dict.values()])
+for k in [1, 3, 10, 25, 50, TOPK]:
+    d[f'hit{k}'] = np.mean([r <= k for r in rank_dict.values()])
+
+for k, v in d.items():
+    print(f'{k:<20} : {v:<16}')
+
+
+path = RESULTS_PATH / f'{FULL_PREFIX}-metrics.json'
+write_dict(d, path)
