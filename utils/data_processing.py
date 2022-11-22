@@ -57,6 +57,10 @@ def get_data(dataset_name, different_new_nodes_between_val_and_test=False, rando
 
     if randomize_features:
         node_features = np.random.rand(node_features.shape[0], node_features.shape[1])
+        #edge_features = np.random.rand(edge_features.shape[0], edge_features.shape[1])
+
+    print(f'Mean of node features: {node_features[:10, :].mean()}')
+    print(f'Mean of edge features: {edge_features[:10, :].mean()}')
 
     val_time, test_time = list(np.quantile(graph_df.ts, [0.70, 0.85]))
 
@@ -90,7 +94,7 @@ def get_data(dataset_name, different_new_nodes_between_val_and_test=False, rando
 
     # For train we keep edges happening before the validation time which do not involve any new node
     # used for inductiveness
-    PATCH_TRAIN = True
+    PATCH_TRAIN = False
     if PATCH_TRAIN:
         train_mask = np.logical_and(timestamps <= val_time, observed_edges_mask)
     else:
@@ -101,7 +105,8 @@ def get_data(dataset_name, different_new_nodes_between_val_and_test=False, rando
 
     # define the new nodes sets for testing inductiveness of the model
     train_node_set = set(train_data.sources).union(train_data.destinations)
-    assert len(train_node_set & new_test_node_set) == 0
+    if PATCH_TRAIN:
+        assert len(train_node_set & new_test_node_set) == 0
     new_node_set = node_set - train_node_set
 
     val_mask = np.logical_and(timestamps <= test_time, timestamps > val_time)
