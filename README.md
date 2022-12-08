@@ -3,8 +3,8 @@
 
 This repo is a modified fork of the TGN repo supporting the Temporal Graph Networks paper by Rossi and al.
 
-Reference repo: https://github.com/twitter-research/tgn
-Reference paper: https://arxiv.org/abs/2006.10637
+- Reference repo: https://github.com/twitter-research/tgn
+- Reference paper: https://arxiv.org/abs/2006.10637
 
 
 The following modifications were made to support comparison with simpler temporal graph methods:
