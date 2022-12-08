@@ -5,9 +5,9 @@
 # q1 : quantile for end of train, default 0.70 
 # q2 : quantile for end of validation, default 0.85
 
-e=9095
-q1=0.90
-q2=0.95
+e=7085
+q1=0.70
+q2=0.85
 
 
 for dataset in lastfm mooc wikipedia reddit
