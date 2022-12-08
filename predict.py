@@ -293,7 +293,7 @@ def predict(tgn, sources, destinations, edge_time, n_neighbors):
 
 
 def predict_low_mem(tgn, sources, destinations, edge_time, n_neighbors):
-    # TODO
+    # TODO: compute on the fly to reduce memory usage
     destination_embeddings = tgn.compute_temporal_embeddings_for_prediction(
         destinations,
         np.repeat(edge_time, len(destinations)),
@@ -349,7 +349,6 @@ def write_dict(d, path):
     with open(path, 'w') as f:
         json.dump(d, f)
         f.write('\n')
-
 
 
 
