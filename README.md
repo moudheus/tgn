@@ -41,6 +41,16 @@ Download the sample datasets (eg. wikipedia and reddit).
 source ./download_data.sh 
 ```
 
+#### Run all
+
+To run the main models on the 4 datasets with future prediction use the script below.
+
+```
+source ./run.sh 
+```
+
+If you want to run specific parts see instructions below.
+
 #### Preprocess the data
 
 We use the dense `npy` format to save the features in binary format. If edge features or nodes 
