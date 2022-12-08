@@ -1,22 +1,17 @@
-# TGN: Temporal Graph Networks [[arXiv](https://arxiv.org/abs/2006.10637), [YouTube](https://www.youtube.com/watch?v=W1GvX2ZcUmY), [Blog Post](https://towardsdatascience.com/temporal-graph-networks-ab8f327f2efe)] 
-
-Dynamic Graph             |  TGN	
-:-------------------------:|:-------------------------:	
-![](figures/dynamic_graph.png)  |  ![](figures/tgn.png)	
+# TGN: Temporal Graph Networks (modified)
 
 
+This repo is a modified fork of the TGN repo supporting the Temporal Graph Networks paper by Rossi and al.
+
+Reference repo: https://github.com/twitter-research/tgn
+Reference paper: https://arxiv.org/abs/2006.10637
 
 
-## Introduction
+The following modifications were made to support comparison with simpler temporal graph methods:
 
-Despite the plethora of different models for deep learning on graphs, few approaches have been proposed thus far for dealing with graphs that present some sort of dynamic nature (e.g. evolving features or connectivity over time).
- 
-In this paper, we present Temporal Graph Networks (TGNs), a generic, efficient framework for deep learning on dynamic graphs represented as sequences of timed events. Thanks to a novel combination of memory modules and graph-based operators, TGNs are able to significantly outperform previous approaches being at the same time more computationally efficient. 
-
-We furthermore show that several previous models for learning on dynamic graphs can be cast as specific instances of our framework. We perform a detailed ablation study of different components of our framework and devise the best configuration that achieves state-of-the-art performance on several transductive and inductive prediction tasks for dynamic graphs.
-
-
-#### Paper link: [Temporal Graph Networks for Deep Learning on Dynamic Graphs](https://arxiv.org/abs/2006.10637)
+- A new script for global future predictions (for each user in the training set, outputs the top 100 recommended items for a given global test time in the future) : predict.py
+- A new function to support creation of embeddings for global prediction: https://github.com/moudheus/tgn/blob/master/model/tgn.py#L272
+- Disabling of training data modification for new nodes as we focus on transductive link prediction: https://github.com/moudheus/tgn/blob/master/utils/data_processing.py#L97
 
 
 ## Running the experiments
