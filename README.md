@@ -1,13 +1,13 @@
 # TGN: Temporal Graph Networks (modified)
 
 
-This repo is a modified fork of the TGN repo supporting the Temporal Graph Networks paper by Rossi and al.
+This repo is a modified fork of the TGN repo supporting the Temporal Graph Networks paper by Rossi and al:
 
 - Reference repo: https://github.com/twitter-research/tgn
 - Reference paper: https://arxiv.org/abs/2006.10637
 
 
-The following modifications were made to support comparison with simpler temporal graph methods:
+The following modifications were made to support comparison with simpler temporal graph methods for link prediction:
 
 - A new script for global future predictions (for each user in the training set, outputs the top 100 recommended items for a given global test time in the future) : predict.py
 - A new function to support creation of embeddings for global prediction: https://github.com/moudheus/tgn/blob/master/model/tgn.py#L272
@@ -38,7 +38,7 @@ source ./download_data.sh
 
 #### Run all
 
-To run the main models on the 4 datasets with future prediction use the script below.
+To run the main models on all datasets with future prediction use the script below.
 
 ```
 source ./run.sh 
@@ -58,19 +58,14 @@ python utils/preprocess_data.py --data reddit --bipartite
 ### Model Training
 
 Self-supervised learning using the link prediction task:
+
 ```{bash}
-# TGN-attn: Supervised learning on the wikipedia dataset
 python train_self_supervised.py --data wikipedia --use_memory --prefix tgn-attn --n_runs 10
 ```
 
-Supervised learning on dynamic node classification (this requires a trained model from 
-the self-supervised task, by eg. running the commands above):
-```{bash}
-# TGN-attn: self-supervised learning on the wikipedia dataset
-python train_supervised.py --data wikipedia --use_memory --prefix tgn-attn --n_runs 10
-```
-
 ### Prediction (new)
+
+Predict top 100 items for each user:
 
 ```{bash}
 python predict.py --data wikipedia --use_memory --prefix tgn-attn 
@@ -79,64 +74,35 @@ python predict.py --data wikipedia --use_memory --prefix tgn-attn
 ### Baselines
 
 ```{bash}
-### Wikipedia Self-supervised
 
 # Jodie
-python train_self_supervised.py --use_memory --memory_updater rnn --embedding_module time --prefix jodie_rnn --n_runs 10
+python train_self_supervised.py --data wikipedia --use_memory --memory_updater rnn --embedding_module time --prefix jodie_rnn --n_runs 10
 
 # DyRep
-python train_self_supervised.py --use_memory --memory_updater rnn --dyrep --use_destination_embedding_in_message --prefix dyrep_rnn --n_runs 10
-
-
-### Reddit Self-supervised
-
-# Jodie
-python train_self_supervised.py -d reddit --use_memory --memory_updater rnn --embedding_module time --prefix jodie_rnn_reddit --n_runs 10
-
-# DyRep
-python train_self_supervised.py -d reddit --use_memory --memory_updater rnn --dyrep --use_destination_embedding_in_message --prefix dyrep_rnn_reddit --n_runs 10
-
-
-### Wikipedia Supervised
-
-# Jodie
-python train_supervised.py --use_memory --memory_updater rnn --embedding_module time --prefix jodie_rnn --n_runs 10
-
-# DyRep
-python train_supervised.py --use_memory --memory_updater rnn --dyrep --use_destination_embedding_in_message --prefix dyrep_rnn --n_runs 10
-
-
-### Reddit Supervised
-
-# Jodie
-python train_supervised.py -d reddit --use_memory --memory_updater rnn --embedding_module time --prefix jodie_rnn_reddit --n_runs 10
-
-# DyRep
-python train_supervised.py -d reddit --use_memory --memory_updater rnn  --dyrep --use_destination_embedding_in_message --prefix dyrep_rnn_reddit --n_runs 10
+python train_self_supervised.py --data wikipedia --use_memory --memory_updater rnn --dyrep --use_destination_embedding_in_message --prefix dyrep_rnn --n_runs 10
 ```
-
 
 ### Ablation Study
 
 Commands to replicate all results in the ablation study over different modules:
 ```{bash}
 # TGN-2l
-python train_self_supervised.py --use_memory --n_layer 2 --prefix tgn-2l --n_runs 10 
+python train_self_supervised.py --data wikipedia --use_memory --n_layer 2 --prefix tgn-2l --n_runs 10 
 
 # TGN-no-mem
-python train_self_supervised.py --prefix tgn-no-mem --n_runs 10 
+python train_self_supervised.py --data wikipedia --prefix tgn-no-mem --n_runs 10 
 
 # TGN-time
-python train_self_supervised.py --use_memory --embedding_module time --prefix tgn-time --n_runs 10 
+python train_self_supervised.py --data wikipedia --use_memory --embedding_module time --prefix tgn-time --n_runs 10 
 
 # TGN-id
-python train_self_supervised.py --use_memory --embedding_module identity --prefix tgn-id --n_runs 10
+python train_self_supervised.py --data wikipedia --use_memory --embedding_module identity --prefix tgn-id --n_runs 10
 
 # TGN-sum
-python train_self_supervised.py --use_memory --embedding_module graph_sum --prefix tgn-sum --n_runs 10
+python train_self_supervised.py --data wikipedia --use_memory --embedding_module graph_sum --prefix tgn-sum --n_runs 10
 
 # TGN-mean
-python train_self_supervised.py --use_memory --aggregator mean --prefix tgn-mean --n_runs 10
+python train_self_supervised.py --data wikipedia --use_memory --aggregator mean --prefix tgn-mean --n_runs 10
 ```
 
 
