@@ -49,7 +49,7 @@ def get_data_node_classification(dataset_name, use_validation=False):
     return full_data, node_features, edge_features, train_data, val_data, test_data
 
 
-def get_data(dataset_name, different_new_nodes_between_val_and_test=False, randomize_features=False):
+def get_data(dataset_name, different_new_nodes_between_val_and_test=False, randomize_features=False, q1=0.70, q2=0.85):
     ### Load data and train val test split
     graph_df = pd.read_csv('./data/ml_{}.csv'.format(dataset_name))
     edge_features = np.load('./data/ml_{}.npy'.format(dataset_name))
@@ -62,7 +62,7 @@ def get_data(dataset_name, different_new_nodes_between_val_and_test=False, rando
     print(f'Mean of node features: {node_features[:10, :].mean()}')
     print(f'Mean of edge features: {edge_features[:10, :].mean()}')
 
-    val_time, test_time = list(np.quantile(graph_df.ts, [0.70, 0.85]))
+    val_time, test_time = list(np.quantile(graph_df.ts, [q1, q2]))
 
     sources = graph_df.u.values
     destinations = graph_df.i.values

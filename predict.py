@@ -32,6 +32,9 @@ parser.add_argument(
     help="Dataset name (eg. wikipedia or reddit)",
     default="wikipedia",
 )
+parser.add_argument("--q1", type=float, default=0.70, help="Quantile for end of train")
+parser.add_argument("--q2", type=float, default=0.85, help="Quantile for end of val")
+
 parser.add_argument("--bs", type=int, default=200, help="Batch_size")
 parser.add_argument(
     "--prefix", type=str, default="", help="Prefix to name the checkpoints"
@@ -187,6 +190,8 @@ logger.info(args)
     DATA,
     different_new_nodes_between_val_and_test=args.different_new_nodes,
     randomize_features=args.randomize_features,
+    q1=args.q1,
+    q2=args.q2,
 )
 
 
