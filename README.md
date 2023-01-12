@@ -9,9 +9,9 @@ This repo is a modified fork of the TGN repo supporting the Temporal Graph Netwo
 
 The following modifications were made to support comparison with simpler temporal graph methods for link prediction:
 
-- A new script for global future predictions (for each user in the training set, outputs the top 100 recommended items for a given global test time in the future) : predict.py
-- A new function to support creation of embeddings for global prediction: https://github.com/moudheus/tgn/blob/master/model/tgn.py#L272
-- Disabling of training data modification for new nodes as we focus on transductive link prediction: https://github.com/moudheus/tgn/blob/master/utils/data_processing.py#L97
+- A new script for global future predictions (for each user in the training set, outputs the top 100 recommended items for a given global test time in the future) : [predict.py](https://github.com/moudheus/tgn/blob/master/predict.py)
+- A new function to support creation of embeddings for global prediction: [model/tgn.py](https://github.com/moudheus/tgn/blob/master/model/tgn.py#L272)
+- Disabling of training data modification for new nodes as we focus on transductive link prediction: [util/data_processing.py](https://github.com/moudheus/tgn/blob/master/utils/data_processing.py#L97)
 
 
 ## Running the experiments
