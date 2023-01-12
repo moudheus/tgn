@@ -13,10 +13,25 @@ from pathlib import Path
 from sklearn.metrics import average_precision_score, roc_auc_score
 import pandas as pd
 from tqdm import trange
+import time
 
 from model.tgn import TGN
 from utils.utils import EarlyStopMonitor, RandEdgeSampler, get_neighbor_finder
 from utils.data_processing import get_data, compute_time_statistics
+
+
+def rank_score(preds_list, true_set):
+    for i, pred in enumerate(preds_list):
+        if pred in true_set:
+            return i+1
+    return 1_000_000
+
+
+def write_dict(d, path):
+    with open(path, 'w') as f:
+        json.dump(d, f)
+        f.write('\n')
+
 
 torch.manual_seed(0)
 np.random.seed(0)
@@ -34,6 +49,8 @@ parser.add_argument(
 )
 parser.add_argument("--q1", type=float, default=0.70, help="Quantile for end of train")
 parser.add_argument("--q2", type=float, default=0.85, help="Quantile for end of val")
+
+parser.add_argument("--n_pred_windows", type=int, default=1, help="number of prediction windows inside the test window")
 
 parser.add_argument("--bs", type=int, default=200, help="Batch_size")
 parser.add_argument(
@@ -155,10 +172,13 @@ Path("./saved_checkpoints/").mkdir(parents=True, exist_ok=True)
 
 FULL_PREFIX = f"{args.prefix}-{args.data}"
 MODEL_SAVE_PATH = f"./saved_models/{FULL_PREFIX}.pth"
+#RESULTS_PATH = Path(f'results-timing-w{args.n_pred_windows}')
 RESULTS_PATH = Path('results')
 
 
+
 ### set up logger
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
@@ -294,82 +314,62 @@ def predict(tgn, sources, destinations, edge_time, n_neighbors):
 
 def predict_low_mem(tgn, sources, destinations, edge_time, n_neighbors):
     # TODO: compute on the fly to reduce memory usage
-    destination_embeddings = tgn.compute_temporal_embeddings_for_prediction(
-        destinations,
-        np.repeat(edge_time, len(destinations)),
-        n_neighbors
-    )
-    scores = []
-    for i in trange(len(sources)):
-        source_embeddings = tgn.compute_temporal_embeddings_for_prediction(
-            sources,
-            np.repeat(edge_time, len(sources)),
-            n_neighbors
-        )
-        e = source_embeddings[i, :].repeat(len(destination_embeddings), 1)
-        score = tgn.affinity_score(e, destination_embeddings).squeeze(dim=0)
-        df = pd.DataFrame()
-        df['source'] = np.repeat(sources[i], len(destinations))
-        df['destination'] = destinations
-        df['score'] = score.detach().cpu().numpy()
-        topk = df.sort_values('score', ascending=False).head(TOPK)
-        scores.append(topk)
-
-    scores = pd.concat(scores).reset_index(drop=True)
-    return scores
+    pass
 
 
 sources = np.unique(train_data.sources)
 destinations = np.unique(train_data.destinations)
-edge_time = test_data.timestamps.mean()
-
-scores = predict(tgn, sources, destinations, edge_time, NUM_NEIGHBORS)
 
 
-path = RESULTS_PATH / f'{FULL_PREFIX}-predictions.csv'
-logger.info(f'Saving to {path}')
-scores.to_csv(path, index=False)
+N_WINDOWS = args.n_pred_windows
+ts = test_data.timestamps
+edge_times = np.linspace(ts.min(), ts.max(), N_WINDOWS + 1)
 
-true = pd.DataFrame()
-true['source'] = test_data.sources
-true['destination'] = test_data.destinations
-true.to_csv(RESULTS_PATH / f'{FULL_PREFIX}-true.csv', index=False)
+for i in range(N_WINDOWS):
+    
+    t0, t1 = edge_times[i], edge_times[i+1]
+    edge_time = (t0 + t1) / 2
+    i_window = (t0 <= ts) & (ts <= t1)
+    
+    t0 = time.time()
+    
+    scores = predict(tgn, sources, destinations, edge_time, NUM_NEIGHBORS)
 
+    t1 = time.time()
 
-# Scoring
+    path = RESULTS_PATH / f'{FULL_PREFIX}-predictions-{i}.csv'
+    logger.info(f'Saving to {path}')
+    scores.to_csv(path, index=False)
 
-def rank_score(preds_list, true_set):
-    for i, pred in enumerate(preds_list):
-        if pred in true_set:
-            return i+1
-    return 1_000_000
+    print(f'Inference took {t1-t0:.1f}s')
 
+    true = pd.DataFrame()
+    true['source'] = test_data.sources[i_window]
+    true['destination'] = test_data.destinations[i_window]
+    true_path = RESULTS_PATH / f'{FULL_PREFIX}-true-{i}.csv'
+    logger.info(f'Saving to {true_path}')
+    true.to_csv(true_path, index=False)
 
-def write_dict(d, path):
-    with open(path, 'w') as f:
-        json.dump(d, f)
-        f.write('\n')
+    # Scoring
 
+    #TODO option to remove training interactions from reco_dict so we only recommand new items
+    reco_dict = scores.groupby('source')['destination'].apply(list).to_dict()
+    true_dict = true.groupby('source')['destination'].apply(set).to_dict()
 
+    support = set(reco_dict.keys()) & set(true_dict.keys())
+    print(f'Support: {len(support)} users')
 
-#TODO option to remove training interactions from reco_dict so we only recommand new items
-reco_dict = scores.groupby('source')['destination'].apply(list).to_dict()
-true_dict = true.groupby('source')['destination'].apply(set).to_dict()
+    rank_dict = {user: rank_score(reco_dict[user], true_dict[user]) for user in support}
 
-support = set(reco_dict.keys()) & set(true_dict.keys())
-print(f'Support: {len(support)} users')
+    d = args.__dict__.copy()
+    d['inference_time'] = t1 - t0
 
-rank_dict = {user: rank_score(reco_dict[user], true_dict[user]) for user in support}
+    d['mrr'] = np.mean([1/r for r in rank_dict.values()])
+    for k in [1, 3, 10, 25, 50, TOPK]:
+        d[f'hit{k}'] = np.mean([r <= k for r in rank_dict.values()])
 
-d = args.__dict__.copy()
+    for k, v in d.items():
+        print(f'{k:<20} : {v:<16}')
 
-d['mrr'] = np.mean([1/r for r in rank_dict.values()])
-for k in [1, 3, 10, 25, 50, TOPK]:
-    d[f'hit{k}'] = np.mean([r <= k for r in rank_dict.values()])
-
-for k, v in d.items():
-    print(f'{k:<20} : {v:<16}')
-
-
-path = RESULTS_PATH / f'{FULL_PREFIX}-metrics.json'
-write_dict(d, path)
+    path = RESULTS_PATH / f'{FULL_PREFIX}-metrics-{i}.json'
+    write_dict(d, path)
